@@ -17,12 +17,14 @@
 # retention-days: 5 — download run artifacts promptly and delete them
 # from Actions afterwards (see GH_ACTIONS.md).
 #
-# CHUNKING: one job per task (matrix), max-parallel from input (default
-# 3). A single task may take up to its 6-hour limit, so a per-wave job
-# could exceed the 6-hour per-job limit; one task per job keeps every
-# job safely inside it and lets a failed task be re-run alone.
-# max-parallel 3 suits NVIDIA NIM (40 RPM); use 1 for Groq (8K TPM
-# shared per project) and lower it if 429s appear.
+# CHUNKING: one job per task (matrix), max-parallel 3. A single task
+# may take up to its 6-hour limit, so a per-wave job could exceed the
+# 6-hour per-job limit; one task per job keeps every job safely inside
+# it and lets a failed task be re-run alone. max-parallel 3 suits
+# NVIDIA NIM (40 RPM). NOTE: do NOT make max-parallel an expression
+# over inputs — GitHub rejects it ("Unexpected value") and the matrix
+# job is never created (calibration run 45170814263, 23 Nov 2026).
+# For Groq (8K TPM shared per project) dispatch one task at a time.
 # Model quotas (see MODEL_OPTIONS.md): Gemini free tier is only 20
 # requests/day — do not use gemini/* models for full waves.
 name: dev-run
@@ -55,11 +57,6 @@ on:
         required: false
         default: ''
         type: string
-      max_parallel:
-        description: 'Max parallel task jobs (3 for NVIDIA NIM; 1 for Groq 8K TPM)'
-        required: false
-        default: 3
-        type: number
       kit_check:
         description: 'Also run kit check (build + smoke + MCP) with the dev model'
         required: false
@@ -92,7 +89,6 @@ jobs:
           BASE_URL: ${{ inputs.base_url }}
           COMPACT_AT_TOKENS: ${{ inputs.compact_at_tokens }}
           MAX_OUTPUT_TOKENS: ${{ inputs.max_output_tokens }}
-          MAX_PARALLEL: ${{ inputs.max_parallel }}
         run: |
           if ! printf '%s' "$MODEL_API" | grep -qE '^(gemini/[A-Za-z0-9._-]+|openai-compatible/[A-Za-z0-9._/-]+)$'; then
             echo "::error::model must be gemini/<model> or openai-compatible/<model>, got: $MODEL_API"
@@ -135,10 +131,6 @@ jobs:
               exit 1
             fi
           done
-          if [ "$MAX_PARALLEL" -lt 1 ] || [ "$MAX_PARALLEL" -gt 10 ]; then
-            echo "::error::max_parallel must be between 1 and 10"
-            exit 1
-          fi
           echo "Dev model: $MODEL_API"
           if [ -n "$BASE_URL" ]; then echo "Base URL: $BASE_URL"; fi
       - name: Clone PLE kit (for dev_set.yaml validation)
@@ -252,7 +244,7 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      max-parallel: ${{ inputs.max_parallel }}
+      max-parallel: 3
       matrix:
         task: ${{ fromJSON(needs.plan.outputs.tasks) }}
     env:
