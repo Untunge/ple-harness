@@ -1,7 +1,8 @@
 # Dev-set runs for the PLE Kaggle entry on GitHub Actions.
 #
 # Runs eval/run.py on PLE dev tasks with a LOCAL model (default
-# gemini/gemini-2.5-flash, free tier) and uploads the exported artifacts.
+# NVIDIA NIM Nemotron 3 Ultra via openai-compatible, free tier
+# 40 RPM / 10,000 RPD) and uploads the exported artifacts.
 # The submitted commit always declares google-cloud/claude-opus-5-5; the
 # model_api swap here is temporary (working tree only, restored by trap)
 # and is allowed explicitly by the Kaggle competition rules (see PLAN.md
@@ -16,15 +17,14 @@
 # retention-days: 5 — download run artifacts promptly and delete them
 # from Actions afterwards (see GH_ACTIONS.md).
 #
-# CHUNKING: one job per task (matrix), max 3 in parallel. A single task
-# may take up to its 6-hour limit, so a per-wave job could exceed the
-# 6-hour per-job limit; one task per job keeps every job safely inside
-# it and lets a failed task be re-run alone. max-parallel 3 bounds
-# concurrent load on the Gemini free-tier quota (5 RPM shared per
-# project); lower it to 1 if 429s appear. NOTE: current free-tier RPD
-# for gemini-2.5-flash is reported at only 20/day (Nov 2026 sources;
-# Google no longer publishes the table — verify in AI Studio) — expect
-# to spread runs across days; see GH_ACTIONS.md.
+# CHUNKING: one job per task (matrix), max-parallel from input (default
+# 3). A single task may take up to its 6-hour limit, so a per-wave job
+# could exceed the 6-hour per-job limit; one task per job keeps every
+# job safely inside it and lets a failed task be re-run alone.
+# max-parallel 3 suits NVIDIA NIM (40 RPM); use 1 for Groq (8K TPM
+# shared per project) and lower it if 429s appear.
+# Model quotas (see MODEL_OPTIONS.md): Gemini free tier is only 20
+# requests/day — do not use gemini/* models for full waves.
 name: dev-run
 
 on:
@@ -36,10 +36,30 @@ on:
         default: wave1a
         type: string
       model:
-        description: 'Local dev model_api (gemini/<model> only; the swap is temporary)'
+        description: 'Local dev model_api: openai-compatible/<model> (needs base_url) or gemini/<model>'
         required: true
-        default: gemini/gemini-2.5-flash
+        default: openai-compatible/nvidia/nemotron-3-ultra-550b-a55b
         type: string
+      base_url:
+        description: 'Model base URL for openai-compatible models (e.g. https://integrate.api.nvidia.com/v1 for NVIDIA NIM); leave empty for gemini models'
+        required: false
+        default: ''
+        type: string
+      compact_at_tokens:
+        description: 'Override COMPACT_AT_TOKENS in submission.yaml (empty = keep 150000; use ~6000 for Groq 8K TPM)'
+        required: false
+        default: ''
+        type: string
+      max_output_tokens:
+        description: 'Override MAX_OUTPUT_TOKENS in submission.yaml (empty = keep 32000; use ~2048 for Groq)'
+        required: false
+        default: ''
+        type: string
+      max_parallel:
+        description: 'Max parallel task jobs (3 for NVIDIA NIM; 1 for Groq 8K TPM)'
+        required: false
+        default: 3
+        type: number
       kit_check:
         description: 'Also run kit check (build + smoke + MCP) with the dev model'
         required: false
@@ -50,7 +70,7 @@ permissions:
   contents: read
 
 # One dev-run dispatch at a time: parallel dispatches would share the
-# Gemini free-tier quota and race each other into 429s.
+# dev-model quota and race each other into 429s.
 concurrency:
   group: ple-dev-run
   cancel-in-progress: false
@@ -66,15 +86,61 @@ jobs:
     outputs:
       tasks: ${{ steps.resolve.outputs.tasks }}
     steps:
-      - name: Validate model input (gemini dev models only)
+      - name: Validate model + base_url inputs
         env:
           MODEL_API: ${{ inputs.model }}
+          BASE_URL: ${{ inputs.base_url }}
+          COMPACT_AT_TOKENS: ${{ inputs.compact_at_tokens }}
+          MAX_OUTPUT_TOKENS: ${{ inputs.max_output_tokens }}
+          MAX_PARALLEL: ${{ inputs.max_parallel }}
         run: |
-          if ! printf '%s' "$MODEL_API" | grep -qE '^gemini/[A-Za-z0-9._-]+$'; then
-            echo "::error::model must be gemini/<model> (letters, digits, . _ -), got: $MODEL_API"
+          if ! printf '%s' "$MODEL_API" | grep -qE '^(gemini/[A-Za-z0-9._-]+|openai-compatible/[A-Za-z0-9._/-]+)$'; then
+            echo "::error::model must be gemini/<model> or openai-compatible/<model>, got: $MODEL_API"
+            exit 1
+          fi
+          case "$MODEL_API" in
+            openai-compatible/*)
+              if [ -z "$BASE_URL" ]; then
+                echo "::error::base_url is required for openai-compatible models (e.g. https://integrate.api.nvidia.com/v1 for NVIDIA NIM)"
+                exit 1
+              fi
+              ;;
+            gemini/*)
+              if [ -n "$BASE_URL" ]; then
+                echo "::error::base_url must be empty for gemini models"
+                exit 1
+              fi
+              ;;
+          esac
+          if [ -n "$BASE_URL" ]; then
+            case "$BASE_URL" in
+              https://*) ;;
+              *) echo "::error::base_url must start with https://"; exit 1 ;;
+            esac
+            case "$BASE_URL" in
+              *\?*|*\#*|*@*) echo "::error::base_url must not contain credentials, query, or fragment"; exit 1 ;;
+            esac
+            case "$BASE_URL" in
+              */chat/completions|*/chat/completions/*) echo "::error::base_url must not end with /chat/completions"; exit 1 ;;
+            esac
+            HOST="$(printf '%s' "$BASE_URL" | sed -e 's|^https://||' -e 's|/.*$||')"
+            if ! printf '%s' "$HOST" | grep -qE '^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; then
+              echo "::error::base_url host must be a public DNS name, got: $HOST"
+              exit 1
+            fi
+          fi
+          for v in "$COMPACT_AT_TOKENS" "$MAX_OUTPUT_TOKENS"; do
+            if [ -n "$v" ] && ! printf '%s' "$v" | grep -qE '^[0-9]+$'; then
+              echo "::error::compact_at_tokens and max_output_tokens must be positive integers"
+              exit 1
+            fi
+          done
+          if [ "$MAX_PARALLEL" -lt 1 ] || [ "$MAX_PARALLEL" -gt 10 ]; then
+            echo "::error::max_parallel must be between 1 and 10"
             exit 1
           fi
           echo "Dev model: $MODEL_API"
+          if [ -n "$BASE_URL" ]; then echo "Base URL: $BASE_URL"; fi
       - name: Clone PLE kit (for dev_set.yaml validation)
         run: |
           git clone --depth 1 "$KIT_REPO" "$RUNNER_TEMP/ple-kit"
@@ -112,12 +178,25 @@ jobs:
     timeout-minutes: 120
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
       MODEL_API: ${{ inputs.model }}
+      BASE_URL: ${{ inputs.base_url }}
+      COMPACT_AT_TOKENS: ${{ inputs.compact_at_tokens }}
+      MAX_OUTPUT_TOKENS: ${{ inputs.max_output_tokens }}
     steps:
       - name: Check required secret
         run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "::error::Missing repository secret GEMINI_API_KEY — add it in repo Settings → Secrets and variables → Actions (see GH_ACTIONS.md)."
+          MISSING=""
+          case "$MODEL_API" in
+            gemini/*)
+              [ -z "$GEMINI_API_KEY" ] && MISSING="GEMINI_API_KEY"
+              ;;
+            openai-compatible/*)
+              [ -z "$MODEL_API_KEY" ] && MISSING="MODEL_API_KEY"
+              ;;
+          esac
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing repository secret $MISSING — add it in repo Settings → Secrets and variables → Actions (see GH_ACTIONS.md)."
             exit 1
           fi
           echo "Secret present (value never printed)."
@@ -148,8 +227,18 @@ jobs:
           restore() { mv -f "$BACKUP" "$SUB"; echo "restored submission.yaml:"; grep -E '^(name|model_api):' "$SUB"; }
           trap restore EXIT
           sed -i "s|^model_api: .*|model_api: $MODEL_API|" "$SUB"
+          if [ -n "$BASE_URL" ]; then
+            sed -i "/^model_api:/a model_base_url: $BASE_URL" "$SUB"
+          fi
+          if [ -n "$COMPACT_AT_TOKENS" ]; then
+            sed -i "s|^  COMPACT_AT_TOKENS: .*|  COMPACT_AT_TOKENS: \"$COMPACT_AT_TOKENS\"|" "$SUB"
+          fi
+          if [ -n "$MAX_OUTPUT_TOKENS" ]; then
+            sed -i "s|^  MAX_OUTPUT_TOKENS: .*|  MAX_OUTPUT_TOKENS: \"$MAX_OUTPUT_TOKENS\"|" "$SUB"
+          fi
           echo "kit check with model_api: $MODEL_API"
-          grep -E '^(name|model_api):' "$SUB"
+          grep -E '^(name|model_api|model_base_url):' "$SUB"
+          grep -E 'COMPACT_AT_TOKENS|MAX_OUTPUT_TOKENS' "$SUB" || true
           cd "$KIT"
           # NOTE: kit check will report "not ready to submit" here (dev model,
           # no artifacts/ yet) — that is expected. The job passes when every
@@ -163,20 +252,31 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: ${{ inputs.max_parallel }}
       matrix:
         task: ${{ fromJSON(needs.plan.outputs.tasks) }}
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
       TASK_ID: ${{ matrix.task }}
       MODEL_API: ${{ inputs.model }}
+      BASE_URL: ${{ inputs.base_url }}
+      COMPACT_AT_TOKENS: ${{ inputs.compact_at_tokens }}
+      MAX_OUTPUT_TOKENS: ${{ inputs.max_output_tokens }}
     steps:
       - name: Check required secrets
         run: |
           MISSING=""
           [ -z "$HF_TOKEN" ] && MISSING="$MISSING HF_TOKEN"
-          [ -z "$GEMINI_API_KEY" ] && MISSING="$MISSING GEMINI_API_KEY"
+          case "$MODEL_API" in
+            gemini/*)
+              [ -z "$GEMINI_API_KEY" ] && MISSING="$MISSING GEMINI_API_KEY"
+              ;;
+            openai-compatible/*)
+              [ -z "$MODEL_API_KEY" ] && MISSING="$MISSING MODEL_API_KEY"
+              ;;
+          esac
           if [ -n "$MISSING" ]; then
             echo "::error::Missing repository secrets:$MISSING — add them in repo Settings → Secrets and variables → Actions (see GH_ACTIONS.md)."
             exit 1
@@ -217,8 +317,18 @@ jobs:
           restore() { mv -f "$BACKUP" "$SUB"; echo "restored submission.yaml:"; grep -E '^(name|model_api):' "$SUB"; }
           trap restore EXIT
           sed -i "s|^model_api: .*|model_api: $MODEL_API|" "$SUB"
+          if [ -n "$BASE_URL" ]; then
+            sed -i "/^model_api:/a model_base_url: $BASE_URL" "$SUB"
+          fi
+          if [ -n "$COMPACT_AT_TOKENS" ]; then
+            sed -i "s|^  COMPACT_AT_TOKENS: .*|  COMPACT_AT_TOKENS: \"$COMPACT_AT_TOKENS\"|" "$SUB"
+          fi
+          if [ -n "$MAX_OUTPUT_TOKENS" ]; then
+            sed -i "s|^  MAX_OUTPUT_TOKENS: .*|  MAX_OUTPUT_TOKENS: \"$MAX_OUTPUT_TOKENS\"|" "$SUB"
+          fi
           echo "dev run with model_api: $MODEL_API"
-          grep -E '^(name|model_api):' "$SUB"
+          grep -E '^(name|model_api|model_base_url):' "$SUB"
+          grep -E 'COMPACT_AT_TOKENS|MAX_OUTPUT_TOKENS' "$SUB" || true
           cd "$KIT"
           uv run python eval/run.py "$ENTRY" --tasks "$TASK_ID" --trials 1 --out "$RUNNER_TEMP/runs/$TASK_ID"
       - name: Package outputs (no secrets)
@@ -237,7 +347,7 @@ jobs:
           [ -d "$GITHUB_WORKSPACE/artifacts" ] && cp -a "$GITHUB_WORKSPACE/artifacts" "$OUT/artifacts"
           [ -d "$RUNNER_TEMP/runs/$TASK_ID" ] && cp -a "$RUNNER_TEMP/runs/$TASK_ID" "$OUT/run"
           # Safety net: refuse to upload anything that looks like a leaked key.
-          if grep -rE -q 'AIza[0-9A-Za-z_-]{20,}|hf_[0-9A-Za-z]{20,}|sk-[A-Za-z0-9_-]{20,}' "$OUT" 2>/dev/null; then
+          if grep -rE -q 'AIza[0-9A-Za-z_-]{20,}|hf_[0-9A-Za-z]{20,}|sk-[A-Za-z0-9_-]{20,}|nvapi-[A-Za-z0-9_-]{20,}|gsk_[A-Za-z0-9]{20,}' "$OUT" 2>/dev/null; then
             echo "::error::Packaged output contains text that looks like an API key; refusing to upload."
             rm -rf "$OUT"
             mkdir -p "$OUT"
