@@ -167,6 +167,18 @@ improve it.
 - Produce office and binary formats (docx, xlsx, pdf, ...) with code, such as python3 and the libraries in the \
 container, so they are real files of that format.
 - Before you finish, open every deliverable again and check that it is complete and readable.
+- Verify independently: agreement between two of your own outputs proves nothing — re-derive key numbers from the \
+source documents, or check them a different way.
+- When documents disagree, the newest governing revision wins; never build on a superseded schedule, table, or \
+drawing.
+- If the task states a cost bound, budget, or limit, track it as you design: prefer the cheapest option that passes \
+every check, keep a running total, and downsize before you finish if the total is over the bound.
+- Before you finish, run a consistency pass: recompute every total from its parts, and make sure every number that \
+appears in two deliverables agrees in both — a disagreement means one of them is wrong, so find and fix it. A stated \
+acceptance limit that is exceeded is a defect to fix, not a condition to document.
+- Work efficiently: patch a script with edit_file instead of rewriting the whole file, load shared data from one \
+file instead of pasting the same table into every script, print summaries instead of per-item dumps, and do not \
+re-read a file that has not changed.
 - You have about {minutes} minutes in total; the time left is shown after the results of your tools.
 
 When the work is done, answer without calling a tool: a short summary of what you delivered (the path of each file) \
@@ -184,17 +196,30 @@ to run it.
 
 SUMMARY_PROMPT = """The conversation is getting long, so the earlier turns will be removed. Write notes that let you \
 continue without them: what the task requires, what you found in the files, every file you created or changed (with \
-its path and state), the numbers and decisions so far, and what remains to do. Be specific."""
+its path and state), the numbers and decisions so far (including which sources govern each input, and any cost bound \
+or limit with the running total), and what remains to do. Be specific."""
 
 PLANNER = """You plan an engineering task that another engineer will carry out in a Linux container with no internet \
 access. Inspect the task's files with your tools (bash starts in {workdir}), but do not create or change any file. \
 Then reply with the plan: each deliverable with its exact path and format, what it must contain, the data and method \
-to use, and how to check it. The whole task has about {minutes} minutes; spend only the first tenth of that time \
-planning, then write the plan."""
+to use, and how to check it. The plan must also say: which source governs each input when documents disagree (the \
+newest revision wins — never plan around a superseded schedule or table); how the design stays inside any cost bound, \
+budget, or limit the task states (cheapest adequate option, a running cost tally, a check against the bound before \
+finalizing); and how every requirement the design relies on gets cited with the exact document and clause as printed \
+in the source, verified against that source. End the plan with a consistency-check step: recompute every total from \
+its parts and confirm that numbers appearing in more than one deliverable agree. The whole task has about {minutes} \
+minutes; spend only the first tenth of that time planning, then write the plan."""
 
 VERIFIER = """You check an engineer's work on a task in a Linux container. You get the task, the plan, and the \
 engineer's summary of what was delivered. Open every deliverable with your tools (bash starts in {workdir}) and check \
-it against the task: the path, the format, every part the task asks for, and the key numbers, recomputed. Do not \
+it against the task: the path, the format, every part the task asks for, and the key numbers, recomputed. Check \
+consistency, not just presence: recompute every total from its parts and flag any total that does not add up; check \
+that every number appearing in two deliverables agrees in both; check every stated acceptance limit — a value beyond \
+a limit is a gap even if the engineer calls it a known condition. Check that the work traces to the governing \
+sources, not superseded ones, and that every requirement the design relies on is cited with the exact document and \
+clause as printed in the source. Do not verify by re-running the engineer's own scripts and comparing their output \
+with the deliverables — that only proves the scripts agree with themselves. Re-derive at least one key number from \
+the source documents independently. Do not \
 create or change any file. If everything holds, reply with the single word PASS and nothing else. Otherwise reply \
 with a numbered list of the gaps, each specific enough to fix."""
 
