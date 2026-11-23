@@ -1,0 +1,43 @@
+# Secret-free validation for the PLE harness entry.
+# Runs on every push/PR and on demand. No Docker, no model key, no secrets.
+#
+# COST: standard GitHub-hosted runners are FREE (no minute quota) for
+# public repositories. NEVER switch runs-on to a larger runner: larger
+# runners are billed even on public repos.
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out harness
+        uses: actions/checkout@v4
+      - name: Clone PLE kit
+        run: |
+          git clone --depth 1 https://github.com/google-research/ple "$RUNNER_TEMP/ple-kit"
+          echo "kit HEAD: $(git -C "$RUNNER_TEMP/ple-kit" rev-parse HEAD)"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+      - name: Validate submission.yaml (kit validate)
+        run: |
+          cd "$RUNNER_TEMP/ple-kit"
+          uv run python -m kit validate "$GITHUB_WORKSPACE"
+      - name: Byte-compile harness sources
+        run: python3 -m py_compile serve.py taskbridge.py tests/mock_smoke.py
+      - name: Install test dependencies
+        run: |
+          uv venv .venv-test --python 3.12
+          uv pip install --python .venv-test/bin/python -r requirements.txt
+      - name: Mock smoke test (no model key, no Docker, no artifacts)
+        run: .venv-test/bin/python tests/mock_smoke.py

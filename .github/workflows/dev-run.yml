@@ -1,0 +1,255 @@
+# Dev-set runs for the PLE Kaggle entry on GitHub Actions.
+#
+# Runs eval/run.py on PLE dev tasks with a LOCAL model (default
+# gemini/gemini-2.5-flash, free tier) and uploads the exported artifacts.
+# The submitted commit always declares google-cloud/claude-opus-5-5; the
+# model_api swap here is temporary (working tree only, restored by trap)
+# and is allowed explicitly by the Kaggle competition rules (see PLAN.md
+# "Verifikasi aturan swap model").
+#
+# COST: standard GitHub-hosted runners are FREE (no minute quota) for
+# public repositories. NEVER switch runs-on to a larger runner: larger
+# runners are billed even on public repos.
+#
+# STORAGE: the Free plan caps artifact storage at 500 MB (shared with
+# Packages) and blocks uploads once it is full. Uploads use
+# retention-days: 5 — download run artifacts promptly and delete them
+# from Actions afterwards (see GH_ACTIONS.md).
+#
+# CHUNKING: one job per task (matrix), max 3 in parallel. A single task
+# may take up to its 6-hour limit, so a per-wave job could exceed the
+# 6-hour per-job limit; one task per job keeps every job safely inside
+# it and lets a failed task be re-run alone. max-parallel 3 bounds
+# concurrent load on the Gemini free-tier quota (5 RPM shared per
+# project); lower it to 1 if 429s appear. NOTE: current free-tier RPD
+# for gemini-2.5-flash is reported at only 20/day (Nov 2026 sources;
+# Google no longer publishes the table — verify in AI Studio) — expect
+# to spread runs across days; see GH_ACTIONS.md.
+name: dev-run
+
+on:
+  workflow_dispatch:
+    inputs:
+      tasks:
+        description: 'Task IDs (comma-separated) or a wave preset: wave1a, wave1b, wave1c, wave2, wave3, wave4, all'
+        required: true
+        default: wave1a
+        type: string
+      model:
+        description: 'Local dev model_api (gemini/<model> only; the swap is temporary)'
+        required: true
+        default: gemini/gemini-2.5-flash
+        type: string
+      kit_check:
+        description: 'Also run kit check (build + smoke + MCP) with the dev model'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# One dev-run dispatch at a time: parallel dispatches would share the
+# Gemini free-tier quota and race each other into 429s.
+concurrency:
+  group: ple-dev-run
+  cancel-in-progress: false
+
+env:
+  KIT_REPO: https://github.com/google-research/ple
+
+jobs:
+  plan:
+    name: Resolve task list
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tasks: ${{ steps.resolve.outputs.tasks }}
+    steps:
+      - name: Validate model input (gemini dev models only)
+        env:
+          MODEL_API: ${{ inputs.model }}
+        run: |
+          if ! printf '%s' "$MODEL_API" | grep -qE '^gemini/[A-Za-z0-9._-]+$'; then
+            echo "::error::model must be gemini/<model> (letters, digits, . _ -), got: $MODEL_API"
+            exit 1
+          fi
+          echo "Dev model: $MODEL_API"
+      - name: Clone PLE kit (for dev_set.yaml validation)
+        run: |
+          git clone --depth 1 "$KIT_REPO" "$RUNNER_TEMP/ple-kit"
+          echo "kit HEAD: $(git -C "$RUNNER_TEMP/ple-kit" rev-parse HEAD)"
+      - name: Resolve tasks preset to a JSON array
+        id: resolve
+        env:
+          TASKS_INPUT: ${{ inputs.tasks }}
+        run: |
+          case "$TASKS_INPUT" in
+            wave1a) LIST="wind-diaphragm-shear,seismic-diaphragm-shear,roof-deck-design,mv-conveyance-study,data-hall-device-takeoff,division-26-specifications" ;;
+            wave1b) LIST="heat-rejection-life-cycle-cost,cooling-water-flush-plan,frame-extension-method" ;;
+            wave1c) LIST="data-center-site-model,data-hall-mep-routing,data-hall-mep-routing-offset" ;;
+            wave2) LIST="lv-cable-sizing,foundation-strategy,eor-review-corrections" ;;
+            wave3) LIST="fire-test-validation-memo,landscape-sheet-revision" ;;
+            wave4) LIST="engineers-estimate-check,footing-settlement-verification,solar-supplemental-review,solar-witness-test-package,fire-solve-convergence,les-mesh-resolution,fill-compaction-acceptance,shoring-design-verification,emergency-spillway-check,pre-application-capacity-response,permission-to-operate-memo,backfeed-energization-reply" ;;
+            all) LIST="wind-diaphragm-shear,seismic-diaphragm-shear,roof-deck-design,mv-conveyance-study,data-hall-device-takeoff,division-26-specifications,heat-rejection-life-cycle-cost,cooling-water-flush-plan,frame-extension-method,data-center-site-model,data-hall-mep-routing,data-hall-mep-routing-offset,lv-cable-sizing,foundation-strategy,eor-review-corrections,fire-test-validation-memo,landscape-sheet-revision,engineers-estimate-check,footing-settlement-verification,solar-supplemental-review,solar-witness-test-package,fire-solve-convergence,les-mesh-resolution,fill-compaction-acceptance,shoring-design-verification,emergency-spillway-check,pre-application-capacity-response,permission-to-operate-memo,backfeed-energization-reply" ;;
+            *) LIST="$TASKS_INPUT" ;;
+          esac
+          # Validate every id against the kit's dev_set.yaml (fail fast on typos).
+          for id in $(echo "$LIST" | tr ',' ' '); do
+            if ! grep -qxF -- "- id: $id" "$RUNNER_TEMP/ple-kit/eval/dev_set.yaml"; then
+              echo "::error::Unknown dev task id: $id"
+              exit 1
+            fi
+          done
+          JSON="$(printf '%s\n' $(echo "$LIST" | tr ',' ' ') | jq -R . | jq -s -c .)"
+          echo "tasks=$JSON" >> "$GITHUB_OUTPUT"
+          echo "Resolved tasks: $JSON"
+
+  kit-check:
+    name: kit check (smoke + MCP)
+    if: inputs.kit_check
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      MODEL_API: ${{ inputs.model }}
+    steps:
+      - name: Check required secret
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::Missing repository secret GEMINI_API_KEY — add it in repo Settings → Secrets and variables → Actions (see GH_ACTIONS.md)."
+            exit 1
+          fi
+          echo "Secret present (value never printed)."
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/share/swift 2>/dev/null || true
+          sudo apt-get clean 2>/dev/null || true
+          df -h
+      - name: Check out harness
+        uses: actions/checkout@v4
+      - name: Clone PLE kit
+        run: |
+          git clone --depth 1 "$KIT_REPO" "$RUNNER_TEMP/ple-kit"
+          echo "kit HEAD: $(git -C "$RUNNER_TEMP/ple-kit" rev-parse HEAD)"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+      - name: Check Docker
+        run: docker info --format '{{.ServerVersion}}' && docker --version
+      - name: Run kit check with the dev model
+        run: |
+          set -u
+          ENTRY="$GITHUB_WORKSPACE"
+          KIT="$RUNNER_TEMP/ple-kit"
+          SUB="$ENTRY/submission.yaml"
+          BACKUP="$SUB.dev-backup"
+          cp "$SUB" "$BACKUP"
+          restore() { mv -f "$BACKUP" "$SUB"; echo "restored submission.yaml:"; grep -E '^(name|model_api):' "$SUB"; }
+          trap restore EXIT
+          sed -i "s|^model_api: .*|model_api: $MODEL_API|" "$SUB"
+          echo "kit check with model_api: $MODEL_API"
+          grep -E '^(name|model_api):' "$SUB"
+          cd "$KIT"
+          # NOTE: kit check will report "not ready to submit" here (dev model,
+          # no artifacts/ yet) — that is expected. The job passes when every
+          # stage it ran passes (build, model, listen, smoke, MCP).
+          uv run python -m kit check "$ENTRY"
+
+  run:
+    name: Run ${{ matrix.task }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        task: ${{ fromJSON(needs.plan.outputs.tasks) }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      TASK_ID: ${{ matrix.task }}
+      MODEL_API: ${{ inputs.model }}
+    steps:
+      - name: Check required secrets
+        run: |
+          MISSING=""
+          [ -z "$HF_TOKEN" ] && MISSING="$MISSING HF_TOKEN"
+          [ -z "$GEMINI_API_KEY" ] && MISSING="$MISSING GEMINI_API_KEY"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing repository secrets:$MISSING — add them in repo Settings → Secrets and variables → Actions (see GH_ACTIONS.md)."
+            exit 1
+          fi
+          echo "Secrets present (values never printed)."
+      - name: Free disk space (world images are large)
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/share/swift 2>/dev/null || true
+          sudo apt-get clean 2>/dev/null || true
+          docker system prune -af 2>/dev/null || true
+          df -h
+      - name: Check out harness
+        uses: actions/checkout@v4
+      - name: Clone PLE kit
+        run: |
+          git clone --depth 1 "$KIT_REPO" "$RUNNER_TEMP/ple-kit"
+          echo "KIT_SHA=$(git -C "$RUNNER_TEMP/ple-kit" rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "kit HEAD: $(git -C "$RUNNER_TEMP/ple-kit" rev-parse HEAD)"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+      - name: Install Harbor
+        run: |
+          uv tool install harbor==0.20.0 --with websockets
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          harbor --version
+      - name: Check Docker
+        run: docker info --format '{{.ServerVersion}}' && docker --version
+      - name: Run dev task
+        id: eval
+        run: |
+          set -u
+          ENTRY="$GITHUB_WORKSPACE"
+          KIT="$RUNNER_TEMP/ple-kit"
+          SUB="$ENTRY/submission.yaml"
+          BACKUP="$SUB.dev-backup"
+          cp "$SUB" "$BACKUP"
+          restore() { mv -f "$BACKUP" "$SUB"; echo "restored submission.yaml:"; grep -E '^(name|model_api):' "$SUB"; }
+          trap restore EXIT
+          sed -i "s|^model_api: .*|model_api: $MODEL_API|" "$SUB"
+          echo "dev run with model_api: $MODEL_API"
+          grep -E '^(name|model_api):' "$SUB"
+          cd "$KIT"
+          uv run python eval/run.py "$ENTRY" --tasks "$TASK_ID" --trials 1 --out "$RUNNER_TEMP/runs/$TASK_ID"
+      - name: Package outputs (no secrets)
+        if: always()
+        run: |
+          set -u
+          OUT="$RUNNER_TEMP/package"
+          mkdir -p "$OUT"
+          {
+            echo "task: $TASK_ID"
+            echo "model: $MODEL_API"
+            echo "kit_sha: ${KIT_SHA:-unknown}"
+            echo "run_id: ${{ github.run_id }} attempt ${{ github.run_attempt }}"
+            echo "eval_outcome: ${{ steps.eval.outcome }}"
+          } > "$OUT/manifest.txt"
+          [ -d "$GITHUB_WORKSPACE/artifacts" ] && cp -a "$GITHUB_WORKSPACE/artifacts" "$OUT/artifacts"
+          [ -d "$RUNNER_TEMP/runs/$TASK_ID" ] && cp -a "$RUNNER_TEMP/runs/$TASK_ID" "$OUT/run"
+          # Safety net: refuse to upload anything that looks like a leaked key.
+          if grep -rE -q 'AIza[0-9A-Za-z_-]{20,}|hf_[0-9A-Za-z]{20,}|sk-[A-Za-z0-9_-]{20,}' "$OUT" 2>/dev/null; then
+            echo "::error::Packaged output contains text that looks like an API key; refusing to upload."
+            rm -rf "$OUT"
+            mkdir -p "$OUT"
+            echo "UPLOAD BLOCKED: suspected secret in output." > "$OUT/BLOCKED.txt"
+          fi
+          du -sh "$OUT" || true
+          find "$OUT" -maxdepth 2 | head -50
+      - name: Upload run outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ple-dev-${{ matrix.task }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/package
+          retention-days: 5
+          if-no-files-found: error
