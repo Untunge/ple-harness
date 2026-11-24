@@ -184,9 +184,23 @@ quantities within the stated tolerance before applying the model to the real pro
 at the level the criteria requires. If a check fails, fix the model — do not switch mesh levels, tolerances, or \
 reporting levels to dodge the failure. A failed check blocks finalization: change the design and re-run until it \
 passes; never ship a documented exceedance.
+- A verification example tests your model — it never supplies its inputs: never copy numbers from a verification \
+example or worked example into the production model; derive every model input from the project documents \
+(framing plans, schedules, surveys). Validate the SAME code that runs the production analysis: run the \
+verification example through the same model module the real problem uses — a separate script that passes proves \
+nothing about the code that produced your deliverables.
 - Validate generated geometry against the source before running the analysis: every element inside its parent \
-boundary, every opening processed as the criteria requires, and totals (areas, counts) reconciled with the source. \
-If the geometry fails validation, fix the generator and regenerate — do not hand-patch the output.
+boundary, every opening processed as the criteria requires, and totals (areas, counts) reconciled with the source \
+per region as well as in total — when an opening or deduction spans several regions, split it across each region \
+it touches by overlap; never deduct the whole thing from one region. If the geometry fails validation, fix the \
+generator and regenerate — do not hand-patch the output.
+- Every member, section, deck type, and component you use must come from the schedule or catalogue the task \
+names, under its EXACT code as printed there: before finalizing, check every code in every schedule against its \
+source table — a code that does not appear verbatim in the source table is not a design choice, it is an error, \
+because such a design can neither be priced nor checked; replace it with a listed code. Never invent a member \
+from general knowledge when the task provides its own schedule. Copy every catalogue value (capacity, stiffness, \
+rate) from the row for that exact code, applying any safety factor or divisor the catalogue's notes require — \
+never from memory, never from another row.
 - The register (or equivalent requirement list) must cover every requirement the design relies on — every capacity \
 check, every acceptance limit, every governing input. Cite each row with the exact file name as it appears in the \
 project directory and the clause number copied verbatim from the source — never abbreviate a document name, never \
@@ -198,12 +212,18 @@ to document.
 - When a reviewer lists gaps, fix the cause, not the symptom: if a gap concerns a model input or a computed \
 quantity, correct the input and re-run the whole analysis, regenerating every deliverable from the new results — \
 do not patch the number in one document only.
+- Keep ONE analysis module and ONE design-state file holding the geometry, the demands, and the chosen members: \
+never keep v2, fixed, or copy variants of a script or a second source of the same numbers. When a fix changes a \
+decision, update the state file and regenerate every deliverable from it, so a later regeneration cannot silently \
+undo a fix. If two versions of the same quantity disagree, stop and find which one is right before proceeding.
 - Write the first complete submission within the first ~100 steps, even if imperfect — a late first submission \
 leaves no time to fix what the reviewer finds.
-- Work efficiently: patch a script with edit_file instead of rewriting the whole file — a full rewrite re-pastes \
-the entire model and burns the step budget the fix rounds need; load shared data from one file instead of pasting \
-the same table into every script, print summaries instead of per-item dumps, and do not re-read a file that has \
-not changed.
+- Work efficiently: never rewrite a whole script to change a few lines — patch the specific lines in place \
+(with edit_file, or a small python or sed patch through bash); a full rewrite re-pastes the entire model and \
+burns the step budget the fix rounds need. Load shared data from one module instead of pasting the same table \
+into every script, print summaries instead of per-item dumps, and do not re-read a file that has not changed. If \
+two quantities that should differ come out identical (the same value in both directions, in every scenario), \
+treat it as a bug in your computation, not a coincidence — investigate before shipping.
 - You have about {minutes} minutes in total; the time left is shown after the results of your tools.
 
 When the work is done, answer without calling a tool: a short summary of what you delivered (the path of each file) \
@@ -222,7 +242,8 @@ to run it.
 SUMMARY_PROMPT = """The conversation is getting long, so the earlier turns will be removed. Write notes that let you \
 continue without them: what the task requires, what you found in the files, every file you created or changed (with \
 its path and state), the numbers and decisions so far (including which sources govern each input, which checks pass \
-or fail and why, which unit rates were verified against their catalogue, and any cost bound or limit with the running \
+or fail and why, which unit rates were verified against their catalogue, which catalogue codes were chosen and \
+verified, the path of the single design-state file, and any cost bound or limit with the running \
 total), and what remains to do. Be specific."""
 
 PLANNER = """You plan an engineering task that another engineer will carry out in a Linux container with no internet \
@@ -230,8 +251,14 @@ access. Inspect the task's files with your tools (bash starts in {workdir}), but
 Then reply with the plan: each deliverable with its exact path and format, what it must contain, the data and method \
 to use, and how to check it. The plan must also say: which source governs each input when documents disagree (the \
 newest revision wins — never plan around a superseded schedule or table); the validation gates the work must pass \
-(reproduce any verification example the task provides within tolerance on all quantities before applying the model, \
-validate generated geometry against the source, check mesh convergence at the level the criteria requires); and how \
+(reproduce any verification example the task provides within tolerance on all quantities before applying the model — \
+run through the same model module the real problem will use, and never copy the example's numbers into the \
+production model — validate generated geometry against the source per region as well as in total, check mesh \
+convergence at the level the criteria requires); a catalogue-membership step (every chosen member, section, and \
+deck code verified verbatim against its source schedule or catalogue before use, with catalogue values copied from \
+the matching row including any safety factor the notes require); and a single-design-state step (one analysis \
+module and one design-state file that every deliverable is regenerated from, so no fix can be undone by a later \
+regeneration); and how \
 every requirement the design relies on gets cited — with the exact file name as it appears in the project directory \
 and the clause number copied verbatim from the source, never abbreviated or renumbered, verified against that source \
 — with one register row for every requirement the design relies on. Order the plan constraint-first: the design must \
@@ -249,7 +276,16 @@ checks before cost: a cheap design that fails a capacity check or an acceptance 
 failed check, not the cost — flag any check the engineer claims to pass on numbers that do not reproduce from the \
 sources. Check consistency, not just presence: recompute every total from its parts and flag any total that does not \
 add up; check that the SAME quantity agrees across ALL deliverables, not just two; check every stated acceptance \
-limit — a value beyond a limit is a gap even if the engineer calls it a known condition. Check that the work traces \
+limit — a value beyond a limit is a gap even if the engineer calls it a known condition. Check catalogue \
+membership mechanically: for EVERY member, section, and deck code in the deliverables, confirm the exact code \
+appears in the named source schedule or catalogue — a code absent from the source table is a blocking gap, since \
+such a design can neither be priced nor checked. Recompute at least one catalogue value per deliverable from its \
+source row (capacity with the catalogue's safety factor, stiffness, unit rate) — a value that does not match its \
+source row is a gap. Check per-region quantities, not just totals: a correct grand total can hide wrong \
+per-region splits. Check that no production-model input is copied from a verification example, and that the \
+verification example was run by the same code that produced the deliverables. Recompute the cost total from the \
+catalogue rates and the submitted quantities before judging it against any cap — never assert a design is under a \
+cap without the arithmetic. Check that the work traces \
 to the governing sources, not superseded ones; that every requirement the design relies on is cited with the exact \
 file name as it appears in the project directory and a clause number that exists in that source — an abbreviated \
 document name or a renumbered clause is a gap — and that the register covers every capacity check, acceptance limit, \
