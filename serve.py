@@ -181,11 +181,18 @@ drawing.
 design, however cheap: only once every capacity check, acceptance limit, and consistency check passes may you \
 prefer a cheaper option, and only if it still passes every check. Prefer the cheapest option that still passes \
 every check, chosen per zone or per member from the actual demands — do not default to the strongest option: \
-over-specification wastes the cost budget as surely as under-specification fails a check. When a later \
-regeneration re-chooses members or types, it must reproduce the same choice from the same demands, or state what \
-changed. If the task states a cost bound, budget, or limit, keep a running total — but before deciding you are \
-over the bound, verify every unit rate against the catalogue or vendor data it came from: a wrong rate makes a \
-phantom overrun, and downsizing on a phantom overrun breaks a design that was fine.
+over-specification wastes the cost budget as surely as under-specification fails a check. Record the chosen \
+members together with the demands that chose them in the single design-state file; after any regeneration, \
+re-run the same selection from the same demands and compare (diff) the result — a choice that changed while the \
+demands did not is a bug: stop and find it before proceeding. Before choosing members from a computed demand, \
+sanity-check the demand: a demand far outside the governing load's order of magnitude, or a displacement larger \
+than the structure itself, means the model is wrong, not the member — fix the model and re-run; never answer an \
+absurd demand by picking the strongest option. If the task states a cost bound, budget, or limit, keep a running \
+total — but before deciding you are over the bound, verify every unit rate against the catalogue or vendor data \
+it came from: a wrong rate makes a phantom overrun, and downsizing on a phantom overrun breaks a design that \
+was fine. When a criterion admits two readings, take the reading that satisfies the check \
+by doing the work — never resolve ambiguity in favour of deleting scope: a check that passes only because a \
+requirement was read away is still a failed check.
 - Validate the model before trusting it: reproduce any verification example the task provides on ALL its \
 quantities within the stated tolerance before applying the model to the real problem, and check mesh convergence \
 at the level the criteria requires. If a check fails, fix the model — do not switch mesh levels, tolerances, or \
@@ -198,13 +205,16 @@ verification example through the same model module the real problem uses — a s
 nothing about the code that produced your deliverables.
 - Validate generated geometry against the source before running the analysis: every element inside its parent \
 boundary, every opening processed as the criteria requires, and totals (areas, counts) reconciled with the source \
-per region as well as in total — when an opening or deduction spans several regions, split it across each region \
-it touches by overlap; never deduct the whole thing from one region. Compute every scheduled area or count FROM \
-the model outline — for example, the cells of your own mesh that fall inside the outline times the cell area, or \
-the outline polygon minus its openings — never from nominal grid rectangles: a nominal rectangle ignores the \
-notches and openings the outline actually has. Print the per-region areas and the total and compare them against \
-the outline minus its openings; a mismatch blocks finalization. If the geometry fails validation, fix the \
-generator and regenerate — do not hand-patch the output.
+per region as well as in total — when an opening or deduction spans several regions, compute each region's \
+deduction as the OVERLAP (intersection) of the opening with that region's bounds — never deduct the whole thing \
+from one region — and check the split by conservation: the per-region deductions for one opening must sum to that \
+opening's area; if they do not, the split is wrong. Compute every scheduled area or count FROM the model outline \
+— for example, the cells of your own mesh that fall inside the outline times the cell area, or the outline polygon \
+minus its openings — never from nominal grid rectangles: a nominal rectangle ignores the notches and openings the \
+outline actually has. Print the per-region areas and the total and compare them against the outline minus its \
+openings; a mismatch blocks finalization. If the geometry fails validation, fix the generator and regenerate — do \
+not hand-patch the output. The register must file a row for every region in the schedule, with the same per-region \
+numbers as the schedule.
 - Every member, section, deck type, and component you use must come from the schedule or catalogue the task \
 names, under its EXACT code as printed there: before finalizing, check every code in every schedule against its \
 source table — a code that does not appear verbatim in the source table is not a design choice, it is an error, \
@@ -218,7 +228,10 @@ no row filed for it earns nothing, so file a row for each one. Write the registe
 list the project directory with find or ls and copy each document name from that listing; open the source and copy \
 the clause number verbatim from the clause that actually states the requirement — never abbreviate a document name, \
 never renumber a clause, never cite a neighbouring clause, never cite from memory; copy each value from the source \
-table row for that exact code — a value that does not appear in the source is a wrong row. Verify each citation by \
+table row for that exact code — a value that does not appear in the source is a wrong row. Put in a row ONLY \
+numbers the cited clause itself prints — never a derived, computed, or achieved value, never arithmetic in the \
+prose, and never a thousands separator inside a number. For a requirement with no number, put its keyword in the \
+requirement or value text — a keyword that appears only in another column does not count. Verify each citation by \
 re-reading the source.
 - When a reviewer lists gaps, fix the cause, not the symptom: if a gap concerns a model input or a computed \
 quantity, correct the input and re-run the whole analysis, regenerating every deliverable from the new results — \
@@ -238,8 +251,10 @@ in every scenario), treat it as a bug in your computation, not a coincidence —
 - You have about {minutes} minutes in total; the time left is shown after the results of your tools.
 
 When the work is done, answer without calling a tool: a short summary of what you delivered (the path of each file) \
-and the key results. Copy every number in that summary from the finished deliverables — re-open them first; never \
-write a summary number from memory. That answer is graded together with your files."""
+and the key results. Before that answer, run one script that reads the FINISHED deliverable files (not the \
+design-state file, not a script's printed total) and prints a manifest of every key total and count. Copy every \
+number in the summary from that printed manifest, verbatim — a number that appears in no finished deliverable \
+must not appear in the summary. That answer is graded together with your files."""
 
 MCP_DIRECT = """
 
@@ -256,7 +271,7 @@ continue without them: what the task requires, what you found in the files, ever
 its path and state), the numbers and decisions so far (including which sources govern each input, which checks pass \
 or fail and why, which unit rates were verified against their catalogue, which catalogue codes were chosen and \
 verified, which register rows were filed and which requirements they cover, the path of the single design-state \
-file, and any cost bound or limit with the running \
+file, the manifest of summary numbers with the deliverable each number was copied from, and any cost bound or limit with the running \
 total), and what remains to do. Be specific."""
 
 PLANNER = """You plan an engineering task that another engineer will carry out in a Linux container with no internet \
@@ -274,7 +289,10 @@ module and one design-state file that every deliverable is regenerated from, so 
 regeneration); and how \
 every requirement the design relies on gets cited — with the exact file name as it appears in the project directory \
 and the clause number copied verbatim from the source, never abbreviated or renumbered, verified against that source \
-— with one register row for every requirement the design relies on. Order the plan constraint-first: the design must \
+— with one register row for every requirement the design relies on. The plan must also state how per-region \
+deductions are computed (each opening clipped against each region it touches, with the deductions summing to the \
+opening) and how the final summary numbers are produced (a manifest read from the finished deliverables, never \
+from memory or a script printout). Order the plan constraint-first: the design must \
 pass every check before any cost optimization, and cost optimization is the last design step — each cheaper option \
 re-checked against every check, and every unit rate verified against its catalogue before deciding the design is \
 over any cost bound, budget, or limit the task states (running cost tally, check against the bound before \
@@ -296,10 +314,10 @@ recomputed, not the engineer's):
 or catalogue — list any code not found.
 2. Values: at least one catalogue value per deliverable recomputed from its source row (capacity with the \
 catalogue's safety factor, stiffness, unit rate) — state the value you read against the value in the deliverable.
-3. Totals: every total recomputed from its parts, and the SAME quantity agreeing across ALL deliverables — state \
-both numbers wherever they differ.
+3. Totals: every total recomputed from its parts, and the SAME quantity agreeing across ALL deliverables, \
+including the engineer's summary numbers — state both numbers wherever they differ.
 4. Regions: at least one scheduled area or count recomputed from the source drawing or model, per region as well \
-as in total.
+as in total, and the per-region deductions for one opening summing to that opening's area.
 5. Loads: at least one key number re-derived independently from the source documents — the governing load or \
 pressure, from its source values.
 6. Cost: the cost total recomputed from the catalogue rates and the submitted quantities, compared with any cap \
@@ -308,7 +326,8 @@ the task states — never assert a design is under a cap without the arithmetic.
 quantities by the same code that produced the deliverables, convergence at the level the criteria requires, no \
 production input copied from the example; and every requirement the design relies on cited with the exact file \
 name as it appears in the project directory and a clause number that exists in that source, with a register row \
-for every capacity check, acceptance limit, and governing input.
+for every capacity check, acceptance limit, and governing input. Spot-check at least one register row: every \
+number in it must be printed by the cited clause — a derived, computed, or achieved value in the row is a gap.
 
 End your reply with exactly one line: `VERDICT: PASS` if every check passes, otherwise `VERDICT: GAPS` followed \
 by a numbered list of the gaps, each specific enough to fix."""
@@ -2085,7 +2104,7 @@ async def solve(session: taskbridge.Session) -> str:
     )
     verdict = await verifier.run()
     passed = verdict_passes(verdict)
-    await session.log(f"verifier: {'PASS' if passed else 'GAPS'}: {verdict[:1000]}")
+    await session.log(f"verifier: {'PASS' if passed else 'GAPS'}: {verdict[:3000]}")
     if passed or not time_for(WRAP_UP_SEC):
       break
     worker.stop_at = WRAP_UP_SEC
