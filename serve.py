@@ -29,8 +29,9 @@ harness's full-featured agent loop):
 2. Worker (full tools incl. MCP, until 25% of the time remains): executes the
    plan and produces the deliverables; its summary becomes `final_message`.
 3. Verifier (read-only, fresh conversation): inspects the deliverables against
-   the task and replies `PASS` or a numbered list of gaps, which are fed back
-   to the worker for up to `MAX_FIX_ROUNDS` fix rounds.
+   the task and replies with a numbered checklist ending in `VERDICT: PASS` or
+   `VERDICT: GAPS` plus the gaps, which are fed back to the worker for up to
+   `MAX_FIX_ROUNDS` fix rounds.
 
 Derived from the kit's `custom-openai` sample (streaming, MCP discovery,
 context compaction, deadline-aware retries) with the phase orchestration
@@ -169,16 +170,22 @@ improve it.
 - Produce office and binary formats (docx, xlsx, pdf, ...) with code, such as python3 and the libraries in the \
 container, so they are real files of that format.
 - Before you finish, open every deliverable again and check that it is complete and readable.
-- Verify independently: agreement between two of your own outputs proves nothing — re-derive key numbers from the \
-source documents, or check them a different way.
+- Verify independently and consistently: agreement between two of your own outputs proves nothing — re-derive key \
+numbers from the source documents, or check them a different way; recompute every total from its parts, and make \
+sure the SAME quantity agrees across ALL deliverables — schedule, calculations, design basis, and summary — a \
+disagreement means one of them is wrong, so find and fix it. A stated acceptance limit that is exceeded is a defect \
+to fix, not a condition to document.
 - When documents disagree, the newest governing revision wins; never build on a superseded schedule, table, or \
 drawing.
 - Satisfy every check first, then optimize cost — never the other way round. A design that fails a check is not a \
 design, however cheap: only once every capacity check, acceptance limit, and consistency check passes may you \
-prefer a cheaper option, and only if it still passes every check. If the task states a cost bound, budget, or \
-limit, keep a running total — but before deciding you are over the bound, verify every unit rate against the \
-catalogue or vendor data it came from: a wrong rate makes a phantom overrun, and downsizing on a phantom overrun \
-breaks a design that was fine.
+prefer a cheaper option, and only if it still passes every check. Prefer the cheapest option that still passes \
+every check, chosen per zone or per member from the actual demands — do not default to the strongest option: \
+over-specification wastes the cost budget as surely as under-specification fails a check. When a later \
+regeneration re-chooses members or types, it must reproduce the same choice from the same demands, or state what \
+changed. If the task states a cost bound, budget, or limit, keep a running total — but before deciding you are \
+over the bound, verify every unit rate against the catalogue or vendor data it came from: a wrong rate makes a \
+phantom overrun, and downsizing on a phantom overrun breaks a design that was fine.
 - Validate the model before trusting it: reproduce any verification example the task provides on ALL its \
 quantities within the stated tolerance before applying the model to the real problem, and check mesh convergence \
 at the level the criteria requires. If a check fails, fix the model — do not switch mesh levels, tolerances, or \
@@ -192,7 +199,11 @@ nothing about the code that produced your deliverables.
 - Validate generated geometry against the source before running the analysis: every element inside its parent \
 boundary, every opening processed as the criteria requires, and totals (areas, counts) reconciled with the source \
 per region as well as in total — when an opening or deduction spans several regions, split it across each region \
-it touches by overlap; never deduct the whole thing from one region. If the geometry fails validation, fix the \
+it touches by overlap; never deduct the whole thing from one region. Compute every scheduled area or count FROM \
+the model outline — for example, the cells of your own mesh that fall inside the outline times the cell area, or \
+the outline polygon minus its openings — never from nominal grid rectangles: a nominal rectangle ignores the \
+notches and openings the outline actually has. Print the per-region areas and the total and compare them against \
+the outline minus its openings; a mismatch blocks finalization. If the geometry fails validation, fix the \
 generator and regenerate — do not hand-patch the output.
 - Every member, section, deck type, and component you use must come from the schedule or catalogue the task \
 names, under its EXACT code as printed there: before finalizing, check every code in every schedule against its \
@@ -202,32 +213,33 @@ from general knowledge when the task provides its own schedule. Copy every catal
 rate) from the row for that exact code, applying any safety factor or divisor the catalogue's notes require — \
 never from memory, never from another row.
 - The register (or equivalent requirement list) must cover every requirement the design relies on — every capacity \
-check, every acceptance limit, every governing input. Cite each row with the exact file name as it appears in the \
-project directory and the clause number copied verbatim from the source — never abbreviate a document name, never \
-renumber a clause, never cite from memory. Verify each citation by re-reading the source.
-- Before you finish, run a consistency pass: recompute every total from its parts, and make sure the SAME quantity \
-agrees across ALL deliverables — schedule, calculations, design basis, and summary — a disagreement means one of \
-them is wrong, so find and fix it. A stated acceptance limit that is exceeded is a defect to fix, not a condition \
-to document.
+check, every acceptance limit, every governing input — and every family the brief lists: a check that passes with \
+no row filed for it earns nothing, so file a row for each one. Write the register as a procedure, not from memory: \
+list the project directory with find or ls and copy each document name from that listing; open the source and copy \
+the clause number verbatim from the clause that actually states the requirement — never abbreviate a document name, \
+never renumber a clause, never cite a neighbouring clause, never cite from memory; copy each value from the source \
+table row for that exact code — a value that does not appear in the source is a wrong row. Verify each citation by \
+re-reading the source.
 - When a reviewer lists gaps, fix the cause, not the symptom: if a gap concerns a model input or a computed \
 quantity, correct the input and re-run the whole analysis, regenerating every deliverable from the new results — \
 do not patch the number in one document only.
 - Keep ONE analysis module and ONE design-state file holding the geometry, the demands, and the chosen members: \
-never keep v2, fixed, or copy variants of a script or a second source of the same numbers. When a fix changes a \
-decision, update the state file and regenerate every deliverable from it, so a later regeneration cannot silently \
-undo a fix. If two versions of the same quantity disagree, stop and find which one is right before proceeding.
+never keep v2, fixed, or copy variants of a script or a second source of the same numbers. Load shared data from \
+that module instead of pasting the same table into every script. When a fix changes a decision, update the state \
+file and regenerate every deliverable from it, so a later regeneration cannot silently undo a fix. If two versions \
+of the same quantity disagree, stop and find which one is right before proceeding.
 - Write the first complete submission within the first ~100 steps, even if imperfect — a late first submission \
 leaves no time to fix what the reviewer finds.
 - Work efficiently: never rewrite a whole script to change a few lines — patch the specific lines in place \
 (with edit_file, or a small python or sed patch through bash); a full rewrite re-pastes the entire model and \
-burns the step budget the fix rounds need. Load shared data from one module instead of pasting the same table \
-into every script, print summaries instead of per-item dumps, and do not re-read a file that has not changed. If \
-two quantities that should differ come out identical (the same value in both directions, in every scenario), \
-treat it as a bug in your computation, not a coincidence — investigate before shipping.
+burns the step budget the fix rounds need. Print summaries instead of per-item dumps, and do not re-read a file \
+that has not changed. If two quantities that should differ come out identical (the same value in both directions, \
+in every scenario), treat it as a bug in your computation, not a coincidence — investigate before shipping.
 - You have about {minutes} minutes in total; the time left is shown after the results of your tools.
 
 When the work is done, answer without calling a tool: a short summary of what you delivered (the path of each file) \
-and the key results. That answer is graded together with your files."""
+and the key results. Copy every number in that summary from the finished deliverables — re-open them first; never \
+write a summary number from memory. That answer is graded together with your files."""
 
 MCP_DIRECT = """
 
@@ -243,7 +255,8 @@ SUMMARY_PROMPT = """The conversation is getting long, so the earlier turns will 
 continue without them: what the task requires, what you found in the files, every file you created or changed (with \
 its path and state), the numbers and decisions so far (including which sources govern each input, which checks pass \
 or fail and why, which unit rates were verified against their catalogue, which catalogue codes were chosen and \
-verified, the path of the single design-state file, and any cost bound or limit with the running \
+verified, which register rows were filed and which requirements they cover, the path of the single design-state \
+file, and any cost bound or limit with the running \
 total), and what remains to do. Be specific."""
 
 PLANNER = """You plan an engineering task that another engineer will carry out in a Linux container with no internet \
@@ -274,28 +287,31 @@ engineer's summary of what was delivered. Open every deliverable with your tools
 it against the task: the path, the format, every part the task asks for, and the key numbers, recomputed. Judge \
 checks before cost: a cheap design that fails a capacity check or an acceptance limit is a gap, and the gap is the \
 failed check, not the cost — flag any check the engineer claims to pass on numbers that do not reproduce from the \
-sources. Check consistency, not just presence: recompute every total from its parts and flag any total that does not \
-add up; check that the SAME quantity agrees across ALL deliverables, not just two; check every stated acceptance \
-limit — a value beyond a limit is a gap even if the engineer calls it a known condition. Check catalogue \
-membership mechanically: for EVERY member, section, and deck code in the deliverables, confirm the exact code \
-appears in the named source schedule or catalogue — a code absent from the source table is a blocking gap, since \
-such a design can neither be priced nor checked. Recompute at least one catalogue value per deliverable from its \
-source row (capacity with the catalogue's safety factor, stiffness, unit rate) — a value that does not match its \
-source row is a gap. Check per-region quantities, not just totals: a correct grand total can hide wrong \
-per-region splits. Check that no production-model input is copied from a verification example, and that the \
-verification example was run by the same code that produced the deliverables. Recompute the cost total from the \
-catalogue rates and the submitted quantities before judging it against any cap — never assert a design is under a \
-cap without the arithmetic. Check that the work traces \
-to the governing sources, not superseded ones; that every requirement the design relies on is cited with the exact \
-file name as it appears in the project directory and a clause number that exists in that source — an abbreviated \
-document name or a renumbered clause is a gap — and that the register covers every capacity check, acceptance limit, \
-and governing input the design relies on. Check that any verification example the task provides is reproduced within \
-tolerance on ALL quantities, and that convergence is checked at the level the criteria requires — switching levels \
-to dodge a failed check is a gap. Do not verify by re-running the engineer's own scripts and comparing their output \
-with the deliverables — that only proves the scripts agree with themselves. Re-derive at least one key number from \
-the source documents independently. Do not \
-create or change any file. If everything holds, reply with the single word PASS and nothing else. Otherwise reply \
-with a numbered list of the gaps, each specific enough to fix."""
+sources. Do not verify by re-running the engineer's own scripts and comparing their output with the deliverables — \
+that only proves the scripts agree with themselves. Do not create or change any file.
+
+Work through this checklist in order, one line per check, each with PASS or FAIL and the evidence (the numbers you \
+recomputed, not the engineer's):
+1. Codes: every member, section, and deck code in the deliverables appears verbatim in its named source schedule \
+or catalogue — list any code not found.
+2. Values: at least one catalogue value per deliverable recomputed from its source row (capacity with the \
+catalogue's safety factor, stiffness, unit rate) — state the value you read against the value in the deliverable.
+3. Totals: every total recomputed from its parts, and the SAME quantity agreeing across ALL deliverables — state \
+both numbers wherever they differ.
+4. Regions: at least one scheduled area or count recomputed from the source drawing or model, per region as well \
+as in total.
+5. Loads: at least one key number re-derived independently from the source documents — the governing load or \
+pressure, from its source values.
+6. Cost: the cost total recomputed from the catalogue rates and the submitted quantities, compared with any cap \
+the task states — never assert a design is under a cap without the arithmetic.
+7. Validation and citations: any verification example the task provides reproduced within tolerance on ALL \
+quantities by the same code that produced the deliverables, convergence at the level the criteria requires, no \
+production input copied from the example; and every requirement the design relies on cited with the exact file \
+name as it appears in the project directory and a clause number that exists in that source, with a register row \
+for every capacity check, acceptance limit, and governing input.
+
+End your reply with exactly one line: `VERDICT: PASS` if every check passes, otherwise `VERDICT: GAPS` followed \
+by a numbered list of the gaps, each specific enough to fix."""
 
 
 def tool(
@@ -1978,6 +1994,28 @@ class Agent:
     return True
 
 
+def verdict_passes(verdict: str) -> bool:
+  """Whether a verifier reply names no gaps.
+
+  Accepts the structured verdict line (`VERDICT: PASS`; `VERDICT: GAPS` wins
+  when both appear) and, for backwards compatibility, a bare `PASS` or an
+  empty reply. A checklist without a verdict line names no pass, so it is
+  treated as gaps and fed back to the worker.
+
+  Args:
+    verdict: The verifier's reply text.
+
+  Returns:
+    `True` if the reply passes the work, else `False`.
+  """
+  lines = [line.strip().strip("*_").upper() for line in verdict.splitlines()]
+  if any(line.startswith("VERDICT:") for line in lines):
+    return any(
+        line.startswith("VERDICT: PASS") for line in lines
+    ) and not any(line.startswith("VERDICT: GAPS") for line in lines)
+  return verdict.strip("*_. \r\n\t").upper() in ("", "PASS")
+
+
 async def solve(session: taskbridge.Session) -> str:
   """Runs the planner, worker, and verifier phases on `session`.
 
@@ -1986,8 +2024,9 @@ async def solve(session: taskbridge.Session) -> str:
   2. Worker (full tools incl. MCP, until CHECK_SHARE of the time remains):
      executes the plan; its summary becomes the final message.
   3. Verifier (read-only, fresh conversation): inspects the deliverables and
-     replies `PASS` or a numbered list of gaps, fed back to the worker for up
-     to MAX_FIX_ROUNDS fix rounds while time remains.
+     replies with a checklist ending in `VERDICT: PASS` or `VERDICT: GAPS`
+     plus the gaps, fed back to the worker for up to MAX_FIX_ROUNDS fix
+     rounds while time remains.
 
   Args:
     session: Active task session.
@@ -2045,12 +2084,9 @@ async def solve(session: taskbridge.Session) -> str:
         final=False,
     )
     verdict = await verifier.run()
-    await session.log(f"verifier: {verdict[:1000]}")
-    # PASS alone in any letter case (Markdown emphasis and a full stop aside),
-    # or an empty reply, names no gaps
-    if verdict.strip("*_. \r\n\t").upper() in ("", "PASS") or not time_for(
-        WRAP_UP_SEC
-    ):
+    passed = verdict_passes(verdict)
+    await session.log(f"verifier: {'PASS' if passed else 'GAPS'}: {verdict[:1000]}")
+    if passed or not time_for(WRAP_UP_SEC):
       break
     worker.stop_at = WRAP_UP_SEC
     worker.messages.append({
