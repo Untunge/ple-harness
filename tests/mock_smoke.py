@@ -11,8 +11,9 @@ Exercises the full planner -> worker -> verifier -> fix-round flow:
   worker fixes it via edit_file, verifier passes.
 
 Asserts the final message, the fake filesystem state, the phase order, and
-that NO artifacts/ folder was created in my-harness (artifacts come only from
-eval/run.py with a real model).
+that the mock run creates, modifies, or deletes no artifacts in my-harness
+(artifacts come only from eval/run.py with a real model; pre-existing
+committed artifacts/ from real eval runs must be byte-identical afterwards).
 
 Usage (from ~/workspace/kaggle-ple):
   uv venv .venv-test --python 3.12
@@ -25,6 +26,7 @@ from the repo root; see .github/workflows/validate.yml.
 
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -67,11 +69,32 @@ SCRIPT = {
             "new_text": "hello world"}),
         ("text", SUMMARY_2),
     ],
-    "verifier": [("text", GAP_TEXT), ("text", "PASS")],
+    "verifier": [("text", GAP_TEXT), ("text",
+                 "1. Codes: PASS\n2. Values: PASS\n3. Totals: PASS\n"
+                 "4. Regions: PASS\n5. Loads: PASS\n6. Cost: PASS\n"
+                 "7. Validation and citations: PASS\nVERDICT: PASS")],
 }
 
 requests_seen = []  # every model request body, in order
 counts = {"planner": 0, "worker": 0, "verifier": 0, "other": 0}
+
+
+def snapshot_artifacts():
+    """{relpath: (size, sha256)} of HARNESS/artifacts, {} when absent."""
+    root = os.path.join(HARNESS, "artifacts")
+    snap = {}
+    if not os.path.isdir(root):
+        return snap
+    for dirpath, _dirs, files in os.walk(root):
+        for name in files:
+            path = os.path.join(dirpath, name)
+            rel = os.path.relpath(path, root)
+            digest = hashlib.sha256()
+            with open(path, "rb") as handle:
+                for chunk in iter(lambda: handle.read(1 << 20), b""):
+                    digest.update(chunk)
+            snap[rel] = (os.path.getsize(path), digest.hexdigest())
+    return snap
 
 
 def phase_of(body):
@@ -227,6 +250,9 @@ def main():
         "MODEL_NAME": "mock-model",
         "PORT": str(WS_PORT),
     })
+    # Snapshot artifacts/ before the mock run: committed artifacts from real
+    # eval runs must be byte-identical afterwards.
+    artifacts_before = snapshot_artifacts()
     proc = subprocess.Popen(
         [sys.executable, "serve.py"], cwd=HARNESS, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -288,8 +314,16 @@ def main():
     check(any(r.get("type") == "read_file" and r.get("path") == "/app/hello.txt"
               for r in evaluator.requests),
           "edit_file read /app/hello.txt back (fix round ran)")
-    check(not os.path.exists(os.path.join(HARNESS, "artifacts")),
-          "no artifacts/ folder was created in my-harness")
+    artifacts_after = snapshot_artifacts()
+    added = sorted(set(artifacts_after) - set(artifacts_before))
+    removed = sorted(set(artifacts_before) - set(artifacts_after))
+    changed = sorted(
+        p for p in set(artifacts_before) & set(artifacts_after)
+        if artifacts_before[p] != artifacts_after[p])
+    check(not added and not removed and not changed,
+          "mock run left artifacts/ untouched"
+          + (f" (added={added} removed={removed} changed={changed})"
+             if added or removed or changed else ""))
     if failures:
         print("\n--- serve.py output ---\n" + out)
         print(f"\nMOCK SMOKE: {len(failures)} FAILURE(S)")

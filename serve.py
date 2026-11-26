@@ -48,6 +48,7 @@ import asyncio
 import json
 import os
 import posixpath
+import random
 import re
 import sys
 import types
@@ -82,7 +83,9 @@ DIRECT_MCP_CHARS = 40_000
 MAX_TOOLS = 128
 KEEP_RECENT_RESULTS = 12
 FINISH_MARGIN_SEC = 180
-RETRY_WAITS = (5, 15, 30, 60, 120)
+RETRY_WAITS = (5, 15, 30, 60, 120, 300, 600)  # ~19 min of backoff: a 429
+# storm that outlasts the old 230 s budget (one dev-run call failed six
+# 429s in a row) used to kill the whole job.
 # Phase time shares (plan-verify pattern): the planner wraps up once it has
 # used PLAN_SHARE of the task time; the worker wraps up with CHECK_SHARE left;
 # the verifier wraps up with VERIFY_SHARE left. A check or fix round starts
@@ -167,6 +170,9 @@ How to work:
 - When the task says how the result is checked (a time limit, a format, a test), check it that way yourself.
 - Write each deliverable exactly where, under the name and in the format the task asks for. Write it early, then \
 improve it.
+- When the task asks you to edit, revise, or update a provided document, edit that document in place (or by \
+scripted edits to a copy of it) — never write the section from scratch. The deliverable must retain the source \
+document's structure and most of its text; a revision that keeps little of the source is not a revision.
 - Produce office and binary formats (docx, xlsx, pdf, ...) with code, such as python3 and the libraries in the \
 container, so they are real files of that format.
 - Before you finish, open every deliverable again and check that it is complete and readable.
@@ -181,9 +187,11 @@ drawing.
 design, however cheap: only once every capacity check, acceptance limit, and consistency check passes may you \
 prefer a cheaper option, and only if it still passes every check. Prefer the cheapest option that still passes \
 every check, chosen per zone or per member from the actual demands — do not default to the strongest option: \
-over-specification wastes the cost budget as surely as under-specification fails a check. Record the chosen \
+over-specification wastes the cost budget as surely as under-specification fails a check. Choose the members with \
+a script that enumerates the catalogue options for each zone or member from the actual demands and picks the \
+cheapest one that passes every check; save the script and its printed selection. Record the chosen \
 members together with the demands that chose them in the single design-state file; after any regeneration, \
-re-run the same selection from the same demands and compare (diff) the result — a choice that changed while the \
+re-run the same selection script from the same demands and compare (diff) the result — a choice that changed while the \
 demands did not is a bug: stop and find it before proceeding. Before choosing members from a computed demand, \
 sanity-check the demand: a demand far outside the governing load's order of magnitude, or a displacement larger \
 than the structure itself, means the model is wrong, not the member — fix the model and re-run; never answer an \
@@ -211,10 +219,13 @@ from one region — and check the split by conservation: the per-region deductio
 opening's area; if they do not, the split is wrong. Compute every scheduled area or count FROM the model outline \
 — for example, the cells of your own mesh that fall inside the outline times the cell area, or the outline polygon \
 minus its openings — never from nominal grid rectangles: a nominal rectangle ignores the notches and openings the \
-outline actually has. Print the per-region areas and the total and compare them against the outline minus its \
-openings; a mismatch blocks finalization. If the geometry fails validation, fix the generator and regenerate — do \
+outline actually has. Compute the per-region areas and deductions with a script (polygon intersection, or the \
+cells of your own mesh that fall inside the outline times the cell area), never by hand arithmetic; save the \
+script and print its per-region table, then compare the table against the outline minus its openings; a mismatch \
+blocks finalization. If the geometry fails validation, fix the generator and regenerate — do \
 not hand-patch the output. The register must file a row for every region in the schedule, with the same per-region \
-numbers as the schedule.
+numbers as the schedule — generate those rows from the schedule's numbers (by script wherever both files are \
+machine-readable), never retype them.
 - Every member, section, deck type, and component you use must come from the schedule or catalogue the task \
 names, under its EXACT code as printed there: before finalizing, check every code in every schedule against its \
 source table — a code that does not appear verbatim in the source table is not a design choice, it is an error, \
@@ -252,9 +263,10 @@ in every scenario), treat it as a bug in your computation, not a coincidence —
 
 When the work is done, answer without calling a tool: a short summary of what you delivered (the path of each file) \
 and the key results. Before that answer, run one script that reads the FINISHED deliverable files (not the \
-design-state file, not a script's printed total) and prints a manifest of every key total and count. Copy every \
-number in the summary from that printed manifest, verbatim — a number that appears in no finished deliverable \
-must not appear in the summary. That answer is graded together with your files."""
+design-state file, not a script's printed total) and writes a manifest file named summary_manifest.md in the \
+workdir, listing every key total and count with the deliverable each number came from. Copy every number in the \
+summary from that manifest file, verbatim — a number that appears in no finished deliverable must not appear in \
+the summary. That answer is graded together with your files."""
 
 MCP_DIRECT = """
 
@@ -271,7 +283,7 @@ continue without them: what the task requires, what you found in the files, ever
 its path and state), the numbers and decisions so far (including which sources govern each input, which checks pass \
 or fail and why, which unit rates were verified against their catalogue, which catalogue codes were chosen and \
 verified, which register rows were filed and which requirements they cover, the path of the single design-state \
-file, the manifest of summary numbers with the deliverable each number was copied from, and any cost bound or limit with the running \
+file, the summary manifest file (summary_manifest.md) with the deliverable each number was copied from, and any cost bound or limit with the running \
 total), and what remains to do. Be specific."""
 
 PLANNER = """You plan an engineering task that another engineer will carry out in a Linux container with no internet \
@@ -291,7 +303,8 @@ every requirement the design relies on gets cited — with the exact file name a
 and the clause number copied verbatim from the source, never abbreviated or renumbered, verified against that source \
 — with one register row for every requirement the design relies on. The plan must also state how per-region \
 deductions are computed (each opening clipped against each region it touches, with the deductions summing to the \
-opening) and how the final summary numbers are produced (a manifest read from the finished deliverables, never \
+opening, computed by a script and saved with its printed table) and how the final summary numbers are produced \
+(a manifest file, summary_manifest.md, written by a script that reads the finished deliverables, never \
 from memory or a script printout). Order the plan constraint-first: the design must \
 pass every check before any cost optimization, and cost optimization is the last design step — each cheaper option \
 re-checked against every check, and every unit rate verified against its catalogue before deciding the design is \
@@ -315,9 +328,12 @@ or catalogue — list any code not found.
 2. Values: at least one catalogue value per deliverable recomputed from its source row (capacity with the \
 catalogue's safety factor, stiffness, unit rate) — state the value you read against the value in the deliverable.
 3. Totals: every total recomputed from its parts, and the SAME quantity agreeing across ALL deliverables, \
-including the engineer's summary numbers — state both numbers wherever they differ.
+including the engineer's summary numbers and the manifest file (summary_manifest.md) — every number in the \
+manifest must appear in the deliverables it claims to summarize; state both numbers wherever they differ.
 4. Regions: at least one scheduled area or count recomputed from the source drawing or model, per region as well \
-as in total, and the per-region deductions for one opening summing to that opening's area.
+as in total, and the per-region deductions for one opening summing to that opening's area. Re-run the engineer's \
+geometry script with bash and compare its printed per-region numbers with the schedule — do not re-derive them by \
+hand; if there is no such script, that is a gap.
 5. Loads: at least one key number re-derived independently from the source documents — the governing load or \
 pressure, from its source values.
 6. Cost: the cost total recomputed from the catalogue rates and the submitted quantities, compared with any cap \
@@ -326,8 +342,11 @@ the task states — never assert a design is under a cap without the arithmetic.
 quantities by the same code that produced the deliverables, convergence at the level the criteria requires, no \
 production input copied from the example; and every requirement the design relies on cited with the exact file \
 name as it appears in the project directory and a clause number that exists in that source, with a register row \
-for every capacity check, acceptance limit, and governing input. Spot-check at least one register row: every \
-number in it must be printed by the cited clause — a derived, computed, or achieved value in the row is a gap.
+for every capacity check, acceptance limit, and governing input. For every region in the schedule, name the \
+register row that carries its numbers — a region with no row is a gap. Spot-check at least three register rows: \
+every number in each must be printed by the cited clause — a derived, computed, or achieved value in the row is \
+a gap. If a deliverable revises a provided source document, compute how much of the source it retains (for \
+example by diffing the two files) — a revision that keeps little of the source text is a gap.
 
 End your reply with exactly one line: `VERDICT: PASS` if every check passes, otherwise `VERDICT: GAPS` followed \
 by a numbered list of the gaps, each specific enough to fix."""
@@ -961,6 +980,38 @@ def stream_error(error: Any) -> openai.OpenAIError:
   return StreamCut(f"the stream reported an error: {message}")
 
 
+def parse_retry_after(error: Any) -> int | None:
+  """Seconds the endpoint asked us to wait after a 429, if it said so.
+
+  Reads the `Retry-After` header (integer seconds only; HTTP dates are
+  ignored) from an `APIStatusError` response, capped at the longest
+  scheduled backoff. Returns `None` when the endpoint gave no usable value.
+
+  Args:
+    error: The API error raised by the failed call.
+
+  Returns:
+    The pause in seconds, or `None`.
+  """
+  response = getattr(error, "response", None)
+  headers = getattr(response, "headers", None)
+  if headers is None:
+    return None
+  try:
+    raw = headers.get("retry-after")
+  except Exception:  # pylint: disable=broad-except
+    return None
+  if raw is None:
+    return None
+  try:
+    seconds = int(str(raw).strip())
+  except ValueError:
+    return None
+  if seconds <= 0:
+    return None
+  return min(seconds, max(RETRY_WAITS))
+
+
 class StreamCut(openai.OpenAIError):  # pylint: disable=g-bad-exception-name
   """Raised when an SSE stream ends before reporting a finish reason.
 
@@ -1070,6 +1121,8 @@ class Agent:
       self.wrap_at = max(self.finish_margin, self.stop_at or 0)
     # head: the text of an answer cut off at the output limit
     nudges, head = 0, ""
+    # consecutive identical tool calls, for the degenerate-loop guard below
+    repeats, last_calls, loop_warning = 0, None, ""
     while True:
       left = self.session.time_left()
       if left is not None and left < self.wrap_at:
@@ -1084,6 +1137,34 @@ class Agent:
       except CutOff:
         return await self.finish("Time is almost up.")
       arguments = [parse_arguments(call) for call in reply.calls.values()]
+      # Degenerate-loop guard: the same tool call with the same arguments,
+      # repeated turn after turn, burns the step budget without progress
+      # (one dev-run worker echoed one verdict 313 times). Warn on the
+      # third identical call in a row; force a wrap-up on the fourth.
+      loop_warning = ""
+      if reply.calls:
+        calls_key = tuple(
+            (call["name"], json.dumps(args, sort_keys=True, default=str))
+            for call, args in zip(reply.calls.values(), arguments)
+        )
+        if calls_key == last_calls:
+          repeats += 1
+        else:
+          repeats, last_calls = 0, calls_key
+        if repeats >= 3:
+          return await self.finish(
+              "You repeated the identical tool call four times in a row;"
+              " the work is wrapped up with what you have."
+          )
+        if repeats == 2:
+          loop_warning = (
+              "You have now run the identical tool call three times in a"
+              " row with the same arguments and the same result. Do not"
+              " run it again: take a different action that changes the"
+              " result, or finish with your summary."
+          )
+      else:
+        repeats, last_calls = 0, None
       if reply.text or reply.calls:
         # A turn with neither (its output went to hidden reasoning, or a content
         # filter stopped it) is not sent back: endpoints refuse an assistant
@@ -1135,6 +1216,8 @@ class Agent:
       left = self.session.time_left()
       if left is not None:
         self.messages[-1]["content"] += f"\n[{int(left // 60)} minutes left]"
+      if loop_warning:
+        self.messages.append({"role": "user", "content": loop_warning})
       if self.prompt_tokens > self.compact_at():
         await self.compact()
 
@@ -1310,6 +1393,7 @@ class Agent:
     reserve = self.finish_margin if reserve is None else reserve
     waits = iter(RETRY_WAITS)
     while True:
+      retry_after = None  # seconds the endpoint asked for, per failure
       try:
         reply = await self.stream(self.messages, tool_choice, reserve, head)
         if reply.finish is None:
@@ -1322,6 +1406,8 @@ class Agent:
         if not (exc.status_code in (408, 409, 429) or exc.status_code >= 500):
           raise
         failure = exc
+        if exc.status_code == 429:
+          retry_after = parse_retry_after(exc)
       except StreamBadRequest as exc:
         if await self.remedy(str(exc)):
           continue
@@ -1332,6 +1418,13 @@ class Agent:
       wait = next(waits, None)
       if wait is None:
         raise failure
+      if retry_after is not None:
+        # Honour the endpoint's pause (capped), but never wait less than the
+        # scheduled backoff.
+        wait = max(wait, retry_after)
+      # Jitter the backoff so parallel jobs sharing one key do not retry in
+      # lockstep and re-collide on the same minute.
+      wait = max(1, round(wait * random.uniform(0.75, 1.25)))
       left = self.session.time_left()
       if left is not None and left - wait < reserve:
         await self.session.log(
@@ -2013,13 +2106,98 @@ class Agent:
     return True
 
 
-def verdict_passes(verdict: str) -> bool:
-  """Whether a verifier reply names no gaps.
+SUMMARY_MANIFEST = "summary_manifest.md"
 
-  Accepts the structured verdict line (`VERDICT: PASS`; `VERDICT: GAPS` wins
-  when both appear) and, for backwards compatibility, a bare `PASS` or an
-  empty reply. A checklist without a verdict line names no pass, so it is
-  treated as gaps and fed back to the worker.
+# Numbers followed by one of these words are asserted quantities (counts),
+# so they are grounded like currency and decimals; bare small integers
+# (section numbers, scenario labels) are not.
+_COUNT_WORDS = (
+    "rows?|files?|panels?|embeds?|piers?|spaces?|buses|feeders?|fixtures?|"
+    "steps?|scenarios?|zones?|checks?|requirements?|findings?|items?|"
+    "members?|lines?|sheets?|deliverables?|bytes?"
+)
+_NUMBER_RE = re.compile(
+    r"\$\d(?:[\d,]*\d)?(?:\.\d+)?|(?<![\w$.-])\d(?:[\d,]*\d)?(?:\.\d+)?"
+)
+
+
+def _summary_numbers(text: str) -> list[tuple[str, float]]:
+  """(original spelling, value) for each distinctive number in `text`.
+
+  Currency amounts and decimals are always distinctive; integers count when
+  they are 100 or more, or 10–99 followed by a count word ("54 rows").
+  Years, single digits, and numbers inside code spans, paths, and
+  identifiers (register IDs such as R-260573-02) are skipped.
+  """
+  clean = re.sub(r"`[^`]*`", " ", text)
+  clean = re.sub(r"https?://\S+", " ", clean)
+  found: dict[float, str] = {}
+  for match in _NUMBER_RE.finditer(clean):
+    raw = match.group(0)
+    value = float(raw.replace("$", "").replace(",", ""))
+    if 1900 <= value <= 2099 and "." not in raw and not raw.startswith("$"):
+      continue  # almost certainly a year, not a quantity
+    if raw.startswith("$") or "." in raw:
+      pass  # currency and decimals are distinctive
+    elif value >= 100:
+      pass  # large counts
+    elif value >= 10 and re.match(
+        r"\s*(?:" + _COUNT_WORDS + r")\b",
+        clean[match.end():match.end() + 14],
+        re.I,
+    ):
+      pass  # small counts with a count word, e.g. "54 rows"
+    else:
+      continue
+    found.setdefault(round(value, 6), raw)
+  return [(raw, value) for value, raw in found.items()]
+
+
+def grounding_mismatches(workdir: str, summary: str) -> tuple[bool, list[str]]:
+  """Numbers in `summary` that no manifest value grounds.
+
+  The manifest is `summary_manifest.md` in `workdir`, written by a script
+  that reads the finished deliverables. A summary number is grounded when
+  the manifest holds the same value within 0.1%.
+
+  Args:
+    workdir: The task's working directory.
+    summary: The worker's final summary text.
+
+  Returns:
+    `(manifest_missing, ungrounded)`: `manifest_missing` is True when the
+    manifest file is absent; `ungrounded` lists the original spellings of
+    the summary numbers that appear in no manifest value (at most 10).
+  """
+  path = os.path.join(workdir, SUMMARY_MANIFEST)
+  try:
+    with open(path, encoding="utf-8", errors="replace") as handle:
+      manifest_text = handle.read()
+  except OSError:
+    manifest_text = None
+  numbers = _summary_numbers(summary)
+  if manifest_text is None:
+    return True, [raw for raw, _ in numbers]
+  manifest_values = [
+      float(match.group(0).replace("$", "").replace(",", ""))
+      for match in _NUMBER_RE.finditer(manifest_text)
+  ]
+  ungrounded = []
+  for raw, value in numbers:
+    tolerance = max(0.01, 0.001 * abs(value))
+    if not any(abs(m - value) <= tolerance for m in manifest_values):
+      ungrounded.append(raw)
+  return False, ungrounded[:10]
+
+
+def verdict_passes(verdict: str) -> bool:
+  """Whether a verifier reply passes the work.
+
+  A reply passes only when it carries an explicit `VERDICT: PASS` line and
+  no `VERDICT: GAPS` line. A reply with no verdict line at all — empty, a
+  bare `PASS`, or prose without the verdict — names no pass, so it is
+  treated as gaps and fed back to the worker. (`VERDICT: GAPS` wins when
+  both appear.)
 
   Args:
     verdict: The verifier's reply text.
@@ -2028,11 +2206,11 @@ def verdict_passes(verdict: str) -> bool:
     `True` if the reply passes the work, else `False`.
   """
   lines = [line.strip().strip("*_").upper() for line in verdict.splitlines()]
-  if any(line.startswith("VERDICT:") for line in lines):
-    return any(
-        line.startswith("VERDICT: PASS") for line in lines
-    ) and not any(line.startswith("VERDICT: GAPS") for line in lines)
-  return verdict.strip("*_. \r\n\t").upper() in ("", "PASS")
+  if not any(line.startswith("VERDICT:") for line in lines):
+    return False
+  return any(
+      line.startswith("VERDICT: PASS") for line in lines
+  ) and not any(line.startswith("VERDICT: GAPS") for line in lines)
 
 
 async def solve(session: taskbridge.Session) -> str:
@@ -2079,20 +2257,67 @@ async def solve(session: taskbridge.Session) -> str:
       final=False,
   )
   plan = await planner.run()
-  await session.log(f"plan: {plan[:1000]}")
+  await session.log(f"plan: {plan}")
   worker = Agent(
       session,
       user_content=f"{task}\n\n## Plan\n{plan}",
       stop_at=until(CHECK_SHARE),
   )
   summary = await worker.run()
+  prev_verdict = ""
   for _ in range(MAX_FIX_ROUNDS):
     if not time_for(until(VERIFY_SHARE)):
       break
+    # Mechanical grounding: every distinctive number in the summary must
+    # appear in summary_manifest.md, written by a script that reads the
+    # finished deliverables. Ungrounded numbers go back to the worker as
+    # gaps instead of spending a verifier round on them.
+    missing_manifest, ungrounded = grounding_mismatches(
+        session.workdir, summary
+    )
+    if ungrounded:
+      if not time_for(WRAP_UP_SEC):
+        await session.log(
+            "summary has ungrounded numbers but no time for a fix round:"
+            f" {', '.join(ungrounded)}"
+        )
+        break
+      if missing_manifest:
+        gaps = (
+            f"Your summary quotes numbers, but {SUMMARY_MANIFEST} is"
+            " missing from the workdir. Run one script that reads the"
+            " FINISHED deliverable files and writes that manifest, then"
+            " copy every number in your updated summary from it, verbatim."
+        )
+      else:
+        gaps = (
+            "These numbers in your summary do not appear in"
+            f" {SUMMARY_MANIFEST}: {', '.join(ungrounded)}. Either they"
+            " are wrong — correct them from the finished deliverables —"
+            " or the manifest is incomplete — re-run the manifest script"
+            " so it lists them, then copy them verbatim."
+        )
+      worker.stop_at = WRAP_UP_SEC
+      worker.messages.append({
+          "role": "user",
+          "content": (
+              "Your summary's numbers do not check out against the"
+              f" manifest:\n{gaps}\n\nFix that, then reply with your"
+              " updated summary."
+          ),
+      })
+      summary = await worker.run() or summary
+      continue
     review = (
         f"## Task\n{task}\n\n## Plan\n{plan}\n\n## The engineer's"
         f" summary\n{summary}"
     )
+    if prev_verdict:
+      review += (
+          "\n\n## Previous verdict\nThe previous review found these gaps:"
+          f"\n{prev_verdict}\nFor each gap, state the file and the numbers"
+          " that show it fixed; a gap you cannot show fixed is still open."
+      )
     verifier = Agent(
         session,
         system=VERIFIER,
@@ -2104,7 +2329,8 @@ async def solve(session: taskbridge.Session) -> str:
     )
     verdict = await verifier.run()
     passed = verdict_passes(verdict)
-    await session.log(f"verifier: {'PASS' if passed else 'GAPS'}: {verdict[:3000]}")
+    await session.log(f"verifier: {'PASS' if passed else 'GAPS'}: {verdict}")
+    prev_verdict = verdict
     if passed or not time_for(WRAP_UP_SEC):
       break
     worker.stop_at = WRAP_UP_SEC
