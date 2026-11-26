@@ -1,0 +1,97 @@
+{
+  "format": 1,
+  "dev_set": "85ad6d96fbf76ee64d9fb6339b3bf342b07128a2ebadc0a10f008c95dac01a48",
+  "created": "2026-11-26T08:06:46Z",
+  "harness": {
+    "name": "ple-harness",
+    "model_api": "openai-compatible/nvidia/nemotron-3-ultra-550b-a55b",
+    "tree": "482a1ad6236ac4b10001c605ac525d9d8f6191a100a9eeb06c55f184ff4614ef",
+    "files": {
+      ".github/workflows/dev-run.yml": "100644 447d577799b618e83dc1f841d45f527309c84c15",
+      ".github/workflows/validate.yml": "100644 d005f4e8aa819833abc27a1d2e65f10b8cc0e50e",
+      ".gitignore": "100644 fda3ba9bfb473fac576abce66431240652b74131",
+      "LICENSE": "100644 261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+      "README.md": "100644 cabfea5f814a85fbfb88d10c91d3d33b527182cb",
+      "requirements.txt": "100644 13ba6dbe5a230d71da63dd42ee49e86f580056dc",
+      "serve.py": "100644 7a78950cfbfcd4434c7cd4a79265462c1167a29e",
+      "submission.yaml": "100644 e1fbaa0728463fc4edc66a2d91f5dd1dade49265",
+      "submission.yaml.dev-backup": "100644 ccad32a5f724747df7fce0a4e090d30f0446a837",
+      "taskbridge.py": "100644 26cc3d6cf8dbcaed859731ce9a6881f4ca8bfe40",
+      "tests/mock_smoke.py": "100644 d260829c80995ace7e170d0acdb7df4bce9d6b38"
+    },
+    "commit": "ad23eceac69ff8bc87c454bc672f48e17c9bdf84",
+    "dirty": true
+  },
+  "tasks": {
+    "wind-diaphragm-shear": {
+      "dev_set": "85ad6d96fbf76ee64d9fb6339b3bf342b07128a2ebadc0a10f008c95dac01a48",
+      "run": "wind-diaphragm-shear",
+      "trial": "wind-diaphragm-shear__V8YuVJc",
+      "ended": "ok",
+      "reward": 0.122222,
+      "tree": "482a1ad6236ac4b10001c605ac525d9d8f6191a100a9eeb06c55f184ff4614ef",
+      "files": {
+        "filesystem/final_batch4__structural_task5_wind_diaphragm_shear__blind/output/submission.zip": "12c65fe44f9b7b4e5930aee07b2b00ce97cf512c"
+      },
+      "final_message": "5e98f18b6d1b27ee3bb9d7b909a35aeb21383be3",
+      "deleted": [],
+      "skipped": []
+    },
+    "seismic-diaphragm-shear": {
+      "dev_set": "85ad6d96fbf76ee64d9fb6339b3bf342b07128a2ebadc0a10f008c95dac01a48",
+      "run": "seismic-diaphragm-shear",
+      "trial": "seismic-diaphragm-shear__b68SEH8",
+      "ended": "ok",
+      "reward": 0.247059,
+      "tree": "482a1ad6236ac4b10001c605ac525d9d8f6191a100a9eeb06c55f184ff4614ef",
+      "files": {
+        "filesystem/final_batch4__structural_task6_seismic_diaphragm_shear__blind/output/submission.zip": "0d61f3cd258968aef91c16c4abb68287367064f7"
+      },
+      "final_message": "91efcb7441db6c01129b59dafc3fc5dca6933f11",
+      "deleted": [],
+      "skipped": []
+    },
+    "roof-deck-design": {
+      "dev_set": "85ad6d96fbf76ee64d9fb6339b3bf342b07128a2ebadc0a10f008c95dac01a48",
+      "run": "roof-deck-design",
+      "trial": "roof-deck-design__hcdK3WK",
+      "ended": "ok",
+      "reward": 0.085714,
+      "tree": "482a1ad6236ac4b10001c605ac525d9d8f6191a100a9eeb06c55f184ff4614ef",
+      "files": {
+        "filesystem/final_batch4__structural_task7_roof_deck_design__blind/output/submission.zip": "ac81ebeeaaa960f80595a69197aa75b69bd7c39c"
+      },
+      "final_message": "00424586002f80d8a1b29a4a3f63994770dfe685",
+      "deleted": [],
+      "skipped": []
+    },
+    "mv-conveyance-study": {
+      "dev_set": "85ad6d96fbf76ee64d9fb6339b3bf342b07128a2ebadc0a10f008c95dac01a48",
+      "run": "mv-conveyance-study",
+      "trial": "mv-conveyance-study__VqZhUAf",
+      "ended": "ok",
+      "reward": 0.066798,
+      "tree": "482a1ad6236ac4b10001c605ac525d9d8f6191a100a9eeb06c55f184ff4614ef",
+      "files": {
+        "filesystem/final_batch4__electrical_task12_conveyance_study__blind/output/submission.zip": "7d0c22285a93cb4329d530f1b76dac251b550143"
+      },
+      "final_message": "f54240ded24c9a89cfdcdcd21f263bc91a80a0f5",
+      "deleted": [],
+      "skipped": []
+    },
+    "division-26-specifications": {
+      "run": "division-26-specifications",
+      "trial": "division-26-specifications__HtGxKzG",
+      "ended": "ok",
+      "reward": 0.0,
+      "tree": "482a1ad6236ac4b10001c605ac525d9d8f6191a100a9eeb06c55f184ff4614ef",
+      "dev_set": "85ad6d96fbf76ee64d9fb6339b3bf342b07128a2ebadc0a10f008c95dac01a48",
+      "files": {
+        "filesystem/final_batch4__electrical_task8_electrical_specs__blind/output/submission.zip": "4c1fbf2f3e9cd615a72bd85f8fdad1dcc53fa973"
+      },
+      "final_message": "ef2745ceccfc511181b96624782644309d84d8b6",
+      "deleted": [],
+      "skipped": []
+    }
+  }
+}

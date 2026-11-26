@@ -1,0 +1,13 @@
+The complete submission package has been created at `/filesystem/final_batch4__structural_task6_seismic_diaphragm_shear__blind/output/submission.zip` containing all five required deliverables:
+
+1. **design_record.json** - Machine-readable design with SFRS selection (Intermediate Precast, R=4, Cd=4, Ω₀=2.0), seismic basis (SDS=0.44, SD1=0.24, Site Class D, Risk Cat III), as-built piers for all four walls, zoned deck attachment (P4/P5 patterns across 12 zones), chord/collector assignments (C1/C2 members), wall line specifications (JC1×2 joints, BA1 base, WA2@4ft anchors), and reported quantities including max wall forces, diaphragm unit shears, parapet transfers, and installed cost of $383,904.
+
+2. **diaphragm_plan.dxf** - Two plan views (E-W and N-S loading) in feet with required layers: DIAPHRAGM_SHEAR (distributed diaphragm forces), WALL_FORCE (applied wall line forces Fₓ/Fᵧ in kips), CHORD (chord runs with axial forces), COLLECTOR (drag struts at openings ≥12ft), DECK_ZONE (12 zone boundaries with P4/P5 patterns), GRID (10ft grid), TITLE (revision block with LRFD statement).
+
+3. **seismic_calculations.xlsx** - Six sheets: WEIGHTS (roof dead, RTUs, wall panels, totals), BASE_SHEAR (SDS, SD1, R, Cd, Ω₀, Ta, Cs, V), DIAPHRAGM_FORCES (Fpx/wpx for both directions, base/future), WALL_FORCES (12 cases S01-S12 with S/N/W/E forces and Ax), PARAPET_ANCHORAGE (ka, Fp, parapet transfer, anchor demand/capacity), CHORD_FORCES (chords, drag struts, opening chords with demands and capacities).
+
+4. **constraint_register.xlsx** - 26 requirement rows citing governing documents (SDC-02, DAP-2, BDS-2026, RPC-CAT-2026, ERC-07, RFI-041, PROC-114, OBD-CDDC-B, GEO-2026-071, PR-07, 29 CFR 1926.704) with clause numbers, values, and bound items; 23 hard and 3 soft requirements.
+
+5. **design_basis.md** - Narrative covering seismic basis (Risk Cat III, Site Class D), SFRS selection rationale (Intermediate Precast cost-efficient vs Ordinary/Special), as-built conflict resolutions (3 conflicts from RFI-041/ERL-2026-08), analysis methodology (DAP-2 envelope of flexible/rigid/semi-rigid, Stage A verified against VP-1), diaphragm/wall forces (envelope max across 12 cases), wall anchorage/parapet (ka=2.0, WA2@4ft), governing constraints per wall line, cost breakdown ($383,904 under $395,000 cap), and rejected alternatives.
+
+**Key Results:** Intermediate Precast Shear Walls with JC1×2 connectors, zoned P4/P5 deck, C1/C2 chords/collectors, BA1 base tie-downs, WA2 anchors @4ft. Total installed cost: $383,904 (2.8% under $395,000 cap). All as-built geometry from ERL-2026-08 and RFI-041 incorporated. Envelope of flexible/rigid/semi-rigid idealizations per DAP-2 and PR-07 used for all forces.

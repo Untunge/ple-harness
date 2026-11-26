@@ -1,0 +1,1 @@
+The final `submission.zip` is written to `/filesystem/final_batch4__structural_task7_roof_deck_design__blind/output/submission.zip` (SHA256: bcfea128e224d3a999cf74bbc3a6f3c38c60e6ba55219883a2ebee1deb1b361c) containing all four required deliverables.
