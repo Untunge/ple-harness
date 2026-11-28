@@ -14,21 +14,27 @@
 
 # ple-harness: BhNu's entry for the Kaggle "Google - Agent Harness on
 # Physical-Engineering's Last Exam" competition.
-# Stage 2 target model: google-cloud/claude-opus-5-5 (strongest sponsored
-# model on the PLE leaderboard, 0.483).
+# Stage 2 target model: google-cloud/gemini-4-neon (strongest sponsored
+# model on the PLE leaderboard per ple-bench.com, checked 28 Nov 2026:
+# dev-set avg 0.566 across harnesses, best 0.599; private-set native 0.507 —
+# ahead of Claude Opus 5.5 at 0.483 private / 0.551 best dev. Was
+# google-cloud/claude-opus-5-5 until 28 Nov 2026; switched on the fresh
+# leaderboard after Gemini 4 Carbon/Neon/Hydrogen were added as sponsored
+# models. Neon also costs less per task than Opus 5.5 on the dev board.)
 #
 # Local dev runs may temporarily use a personal model instead (e.g.
 # gemini/<model> with GEMINI_API_KEY via --env-file); the harness reads the
 # model purely from environment variables, so no code change is needed. See
 # ../PLAN.md ("Model swap untuk dev lokal") and the Writeup for the swap
-# policy. The submitted commit always declares google-cloud/claude-opus-5-5.
+# policy. The submitted commit always declares google-cloud/gemini-4-neon
+# (since 28 Nov 2026; was claude-opus-5-5 before the leaderboard update).
 name: ple-harness
-model_api: google-cloud/claude-opus-5-5
+model_api: google-cloud/gemini-4-neon
 install: >-
   uv venv --python 3.12 /opt/harness/venv
   && uv pip install --python /opt/harness/venv/bin/python -r {src}/requirements.txt
 serve: /opt/harness/venv/bin/python {src}/serve.py
-# Claude Opus 5.5 has a large context window: compact at 150,000 prompt tokens,
+# Gemini 4 Neon has a large context window (1M tokens): compact at 150,000 prompt tokens,
 # leaving room for the default 32,000-token reply.
 env:
   COMPACT_AT_TOKENS: "150000"
